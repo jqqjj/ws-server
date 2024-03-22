@@ -6,6 +6,7 @@ import (
 )
 
 type Request struct {
+	Version  string
 	UUID     string
 	Command  string
 	Payload  json.RawMessage

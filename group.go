@@ -1,10 +1,10 @@
 package server
 
 type GroupServer struct {
-	prefix      string
-	parent      *GroupServer
-	handles     map[string]handle
-	middlewares []Middleware
+	commandPrefix string
+	parent        *GroupServer
+	handles       map[string]handle
+	middlewares   []Middleware
 }
 
 func NewGroup() *GroupServer {
@@ -31,10 +31,10 @@ func (s *GroupServer) Use(middlewares ...Middleware) {
 	s.middlewares = append(s.middlewares, middlewares...)
 }
 
-func (s *GroupServer) Group(prefix string, middlewares ...Middleware) *GroupServer {
+func (s *GroupServer) Group(commandPrefix string, middlewares ...Middleware) *GroupServer {
 	groupServer := NewGroup()
 	groupServer.parent = s
-	groupServer.prefix = prefix
+	groupServer.commandPrefix = commandPrefix
 	groupServer.middlewares = append(s.middlewares, middlewares...)
 	return groupServer
 }
@@ -42,17 +42,17 @@ func (s *GroupServer) Group(prefix string, middlewares ...Middleware) *GroupServ
 func (s *GroupServer) getRoot() *GroupServer {
 	root := s
 	for root.parent != nil {
-		root = s.parent
+		root = root.parent
 	}
 	return root
 }
 
 func (s *GroupServer) buildPrefix() string {
-	prefix := s.prefix
 	root := s
+	prefix := root.commandPrefix
 	for root.parent != nil {
-		prefix = root.parent.prefix + prefix
-		root = s.parent
+		root = root.parent
+		prefix = root.commandPrefix + prefix
 	}
 	return prefix
 }

@@ -17,7 +17,7 @@ func NewServer() *Server {
 	}
 }
 
-func (s *Server) LoopMessage(ctx context.Context, conn *websocket.Conn) {
+func (s *Server) Process(ctx context.Context, conn *websocket.Conn) {
 	var (
 		err  error
 		data []byte
@@ -39,6 +39,7 @@ func (s *Server) LoopMessage(ctx context.Context, conn *websocket.Conn) {
 
 	for {
 		var req struct {
+			Version string          `json:"version"`
 			UUID    string          `json:"uuid"`
 			Command string          `json:"command"`
 			Payload json.RawMessage `json:"payload"`
@@ -47,13 +48,13 @@ func (s *Server) LoopMessage(ctx context.Context, conn *websocket.Conn) {
 			return
 		}
 		if err = json.Unmarshal(data, &req); err != nil {
-			NewResponse("", conn).Fail()
+			NewResponse("", conn).FailWithCodeAndMessage(404, "error to parse request")
 			continue
 		}
 
 		handleEntity, ok := s.handles[req.Command]
 		if !ok {
-			NewResponse(req.UUID, conn).Fail()
+			NewResponse(req.UUID, conn).FailWithCodeAndMessage(404, "command not found")
 			continue
 		}
 
@@ -68,6 +69,7 @@ func (s *Server) LoopMessage(ctx context.Context, conn *websocket.Conn) {
 		}
 
 		reqEntity := Request{
+			Version:  req.Version,
 			UUID:     req.UUID,
 			Command:  req.Command,
 			Payload:  req.Payload,

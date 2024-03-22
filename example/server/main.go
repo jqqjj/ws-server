@@ -30,7 +30,7 @@ func main() {
 		}
 		defer conn.Close()
 
-		srv.LoopMessage(ctx, conn)
+		srv.Process(ctx, conn)
 	})
 
 	http.ListenAndServe("0.0.0.0:8089", nil)
@@ -47,7 +47,7 @@ func wsServer() *server.Server {
 		next(r, w)
 	})
 
-	g := s.Group("", func(next server.HandleFunc, r *server.Request, w *server.Response) {
+	g := s.Group("api/", func(next server.HandleFunc, r *server.Request, w *server.Response) {
 		fmt.Println("gm1")
 		next(r, w)
 	}, func(next server.HandleFunc, r *server.Request, w *server.Response) {
@@ -69,7 +69,9 @@ func wsServer() *server.Server {
 		next(r, w)
 	})
 
-	g.SetHandle("test", func(r *server.Request, w *server.Response) {
+	subG := g.Group("pd/")
+
+	subG.SetHandle("test", func(r *server.Request, w *server.Response) {
 		//panic("panic  aaa")
 		fmt.Printf("data:%s, command:%s, ip:%s, uuid:%s\n", r.Payload, r.Command, r.ClientIP, r.UUID)
 		w.Success("test")

@@ -36,7 +36,7 @@ func main() {
 		Payload any    `json:"payload"`
 	}{
 		UUID:    "1234",
-		Command: "test",
+		Command: "api/pd/sea",
 		Payload: struct {
 			Username string `json:"username"`
 		}{
