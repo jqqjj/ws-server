@@ -51,13 +51,13 @@ func (s *Server) Process(ctx context.Context, conn *websocket.Conn) {
 			return
 		}
 		if err = json.Unmarshal(data, &req); err != nil {
-			NewResponse(req.UUID, conn).FailWithCodeAndMessage(404, "error to parse request")
+			NewResponse(conn).FailWithCodeAndMessage(404, "error to parse request")
 			continue
 		}
 
 		handleEntity, ok := s.handles[req.Command]
 		if !ok {
-			NewResponse(req.UUID, conn).FailWithCodeAndMessage(404, "command not found")
+			NewResponse(conn).FailWithCodeAndMessage(404, "command not found")
 			continue
 		}
 
@@ -83,18 +83,30 @@ func (s *Server) Process(ctx context.Context, conn *websocket.Conn) {
 			ClientIP: ip,
 			meta:     meta,
 		}
-		respEntity := NewResponse(req.UUID, conn)
+		respEntity := NewResponse(conn)
 
-		next(reqEntity, respEntity)
+		func() {
+			defer func() {
+				if !respEntity.filled {
+					respEntity.filled = true
+					respEntity.body = ResponseBody{
+						Code:    1,
+						Message: "Server error",
+						Data:    nil,
+					}
+				}
 
-		conn.WriteJSON(struct {
-			Type string `json:"type"`
-			Body any    `json:"body"`
-		}{
-			Type: "response",
-			Body: respEntity.body,
-		})
+				conn.WriteJSON(struct {
+					Type string `json:"type"`
+					Body any    `json:"body"`
+				}{
+					Type: "response",
+					Body: respEntity.body,
+				})
 
-		meta = reqEntity.meta
+				meta = reqEntity.meta
+			}()
+			next(reqEntity, respEntity)
+		}()
 	}
 }

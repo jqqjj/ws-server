@@ -46,9 +46,9 @@ func wsServer() *server.Server {
 		}
 		fmt.Println("s1")
 		next(r, w)
-		body := w.GetResponseBody()
-		body.UUID += "-s1"
-		w.SetResponseBody(body)
+		//body := w.GetResponseBody()
+		//body.Message = "s1 message"
+		//w.SetResponseBody(body)
 		fmt.Println("s1 final")
 	}, func(next server.HandleFunc, r *server.Request, w *server.Response) {
 		fmt.Println("s2")
