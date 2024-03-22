@@ -19,6 +19,10 @@ func (r *Request) Set(key string, value any) {
 	r.meta.Store(key, value)
 }
 
+func (r *Request) Delete(key string) {
+	r.meta.Delete(key)
+}
+
 func (r *Request) Get(key string) (any, bool) {
 	return r.meta.Load(key)
 }
