@@ -43,7 +43,7 @@ func (r *Response) response(code int, message string, object any) error {
 	}
 	r.replied = true
 
-	resp := struct {
+	body := struct {
 		UUID    string `json:"uuid"`
 		Code    int    `json:"code"`
 		Message string `json:"message"`
@@ -53,6 +53,14 @@ func (r *Response) response(code int, message string, object any) error {
 		Code:    code,
 		Message: message,
 		Data:    object,
+	}
+
+	resp := struct {
+		Type string `json:"type"` //push response
+		Body any    `json:"body"`
+	}{
+		Type: "response",
+		Body: body,
 	}
 
 	return r.conn.WriteJSON(resp)
