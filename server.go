@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/gorilla/websocket"
 	"net"
+	"sync"
 )
 
 type Server struct {
@@ -21,6 +22,8 @@ func (s *Server) Process(ctx context.Context, conn *websocket.Conn) {
 	var (
 		err  error
 		data []byte
+
+		meta *sync.Map
 
 		done = make(chan struct{})
 	)
@@ -48,7 +51,7 @@ func (s *Server) Process(ctx context.Context, conn *websocket.Conn) {
 			return
 		}
 		if err = json.Unmarshal(data, &req); err != nil {
-			NewResponse("", conn).FailWithCodeAndMessage(404, "error to parse request")
+			NewResponse(req.UUID, conn).FailWithCodeAndMessage(404, "error to parse request")
 			continue
 		}
 
@@ -68,13 +71,30 @@ func (s *Server) Process(ctx context.Context, conn *websocket.Conn) {
 			}(next)
 		}
 
-		reqEntity := Request{
+		if meta == nil {
+			meta = &sync.Map{}
+		}
+
+		reqEntity := &Request{
 			Version:  req.Version,
 			UUID:     req.UUID,
 			Command:  req.Command,
 			Payload:  req.Payload,
 			ClientIP: ip,
+			meta:     meta,
 		}
-		next(&reqEntity, NewResponse(req.UUID, conn))
+		respEntity := NewResponse(req.UUID, conn)
+
+		next(reqEntity, respEntity)
+
+		conn.WriteJSON(struct {
+			Type string `json:"type"`
+			Body any    `json:"body"`
+		}{
+			Type: "response",
+			Body: respEntity.body,
+		})
+
+		meta = reqEntity.meta
 	}
 }

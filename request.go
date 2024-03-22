@@ -12,7 +12,7 @@ type Request struct {
 	Payload  json.RawMessage
 	ClientIP string
 
-	meta sync.Map
+	meta *sync.Map
 }
 
 func (r *Request) Set(key string, value any) {

@@ -36,7 +36,7 @@ func main() {
 		Payload any    `json:"payload"`
 	}{
 		UUID:    "1234",
-		Command: "api/pd/sea",
+		Command: "api/pd/test",
 		Payload: struct {
 			Username string `json:"username"`
 		}{
@@ -49,6 +49,10 @@ func main() {
 		conn.WriteJSON(req)
 
 		var data []byte
+		if _, data, err = conn.ReadMessage(); err != nil {
+			log.Fatalln(err)
+		}
+		log.Printf("收到：%s\n", data)
 		if _, data, err = conn.ReadMessage(); err != nil {
 			log.Fatalln(err)
 		}

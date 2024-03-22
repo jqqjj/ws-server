@@ -40,11 +40,20 @@ func wsServer() *server.Server {
 	s := server.NewServer()
 
 	s.Use(func(next server.HandleFunc, r *server.Request, w *server.Response) {
+		if _, ok := r.Get("conn"); !ok {
+			fmt.Println("check once")
+			r.Set("conn", w.GetConn())
+		}
 		fmt.Println("s1")
 		next(r, w)
+		body := w.GetResponseBody()
+		body.UUID += "-s1"
+		w.SetResponseBody(body)
+		fmt.Println("s1 final")
 	}, func(next server.HandleFunc, r *server.Request, w *server.Response) {
 		fmt.Println("s2")
 		next(r, w)
+		fmt.Println("s2 final")
 	})
 
 	g := s.Group("api/", func(next server.HandleFunc, r *server.Request, w *server.Response) {
@@ -75,9 +84,14 @@ func wsServer() *server.Server {
 		//panic("panic  aaa")
 		fmt.Printf("data:%s, command:%s, ip:%s, uuid:%s\n", r.Payload, r.Command, r.ClientIP, r.UUID)
 		w.Success("test")
+		p := server.NewPush(r.MustGet("conn").(*websocket.Conn))
+		p.Write("haha", struct {
+			Token string `json:"token"`
+		}{Token: "token123456"})
 	}, func(next server.HandleFunc, r *server.Request, w *server.Response) {
 		fmt.Println("c1")
 		next(r, w)
+		fmt.Println("c1 final")
 	})
 
 	return s
