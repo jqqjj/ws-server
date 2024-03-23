@@ -97,13 +97,15 @@ func (s *Server) Process(ctx context.Context, conn *websocket.Conn) {
 				}
 
 				conn.WriteJSON(struct {
-					Type string `json:"type"`
-					UUID string `json:"uuid"`
-					Body any    `json:"body"`
+					UUID    string `json:"uuid"`
+					Type    string `json:"type"`
+					Command string `json:"command"`
+					Body    any    `json:"body"`
 				}{
-					Type: "response",
-					UUID: req.UUID,
-					Body: respEntity.body,
+					UUID:    req.UUID,
+					Type:    "response",
+					Command: req.Command,
+					Body:    respEntity.body,
 				})
 
 				meta = reqEntity.meta

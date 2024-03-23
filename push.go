@@ -17,20 +17,14 @@ func (p *Push) GetConn() *websocket.Conn {
 }
 
 func (p *Push) Write(command string, object any) error {
-	body := struct {
-		Command string `json:"command"`
-		Data    any    `json:"data"`
-	}{
-		Command: command,
-		Data:    object,
-	}
-
 	resp := struct {
-		Type string `json:"type"`
-		Body any    `json:"body"`
+		Type    string `json:"type"`
+		Command string `json:"command"`
+		Body    any    `json:"body"`
 	}{
-		Type: "push",
-		Body: body,
+		Type:    "push",
+		Command: command,
+		Body:    object,
 	}
 
 	return p.conn.WriteJSON(resp)
