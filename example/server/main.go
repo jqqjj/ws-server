@@ -82,7 +82,7 @@ func wsServer() *server.Server {
 
 	subG.SetHandle("test", func(r *server.Request, w *server.Response) {
 		//panic("panic  aaa")
-		fmt.Printf("data:%s, command:%s, ip:%s, uuid:%s\n", r.Payload, r.Command, r.ClientIP, r.UUID)
+		fmt.Printf("payload:%s, command:%s, ip:%s, uuid:%s\n", r.Payload, r.Command, r.ClientIP, r.UUID)
 		w.Success("test")
 		p := server.NewPush(r.MustGet("conn").(*websocket.Conn))
 		p.Write("haha", struct {
