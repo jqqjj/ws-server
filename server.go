@@ -55,7 +55,19 @@ func (s *Server) Process(ctx context.Context, conn *websocket.Conn) {
 			continue
 		}
 
-		handleEntity, ok := s.handles[req.Command]
+		if meta == nil {
+			meta = &sync.Map{}
+		}
+		reqEntity := &Request{
+			Version:  req.Version,
+			UUID:     req.UUID,
+			Command:  req.Command,
+			Payload:  req.Payload,
+			ClientIP: ip,
+			meta:     meta,
+		}
+
+		handleEntity, ok := s.handles[reqEntity.Command]
 		if !ok {
 			NewResponse(conn).FailWithCodeAndMessage(404, "command not found")
 			continue
@@ -71,18 +83,6 @@ func (s *Server) Process(ctx context.Context, conn *websocket.Conn) {
 			}(next)
 		}
 
-		if meta == nil {
-			meta = &sync.Map{}
-		}
-
-		reqEntity := &Request{
-			Version:  req.Version,
-			UUID:     req.UUID,
-			Command:  req.Command,
-			Payload:  req.Payload,
-			ClientIP: ip,
-			meta:     meta,
-		}
 		respEntity := NewResponse(conn)
 
 		func() {
@@ -102,9 +102,9 @@ func (s *Server) Process(ctx context.Context, conn *websocket.Conn) {
 					Command string `json:"command"`
 					Body    any    `json:"body"`
 				}{
-					UUID:    req.UUID,
+					UUID:    reqEntity.UUID,
 					Type:    "response",
-					Command: req.Command,
+					Command: reqEntity.Command,
 					Body:    respEntity.body,
 				})
 
