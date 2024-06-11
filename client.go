@@ -18,10 +18,9 @@ type clientEntity struct {
 }
 
 type clientRequest struct {
-	body      clientEntity
-	callbacks []func(bool, []byte)
-	tryLeft   int
-	cancel    context.CancelFunc
+	tryLeft       int
+	body          clientEntity
+	cancelWaiting context.CancelFunc
 }
 
 type Client struct {
@@ -31,7 +30,8 @@ type Client struct {
 
 	queueBuffer chan clientRequest
 	querying    sync.Map
-	pubSub      *PubSub[string, []byte]
+	pubSubPush  *PubSub[string, []byte]
+	pubSubResp  *PubSub[string, []byte]
 
 	onDialError func()
 	onConnected func(conn *websocket.Conn)
@@ -39,12 +39,16 @@ type Client struct {
 }
 
 func NewClient(addr, version string, timeoutDuration time.Duration) *Client {
+	if timeoutDuration < time.Second {
+		timeoutDuration = time.Second * 30
+	}
 	return &Client{
 		addr:        addr,
 		version:     version,
 		timeout:     timeoutDuration,
 		queueBuffer: make(chan clientRequest, 100),
-		pubSub:      NewPubSub[string, []byte](),
+		pubSubPush:  NewPubSub[string, []byte](),
+		pubSubResp:  NewPubSub[string, []byte](),
 	}
 }
 
@@ -96,6 +100,45 @@ func (c *Client) Run(ctx context.Context) {
 	}
 }
 
+func (c *Client) Send(ctx context.Context, command string, data any) ([]byte, error) {
+	var (
+		ch = make(chan []byte)
+
+		reqId             = uuid.NewV4().String()
+		subCtx, subCancel = context.WithTimeout(ctx, c.timeout)
+
+		req = clientRequest{
+			tryLeft: 1,
+			body: clientEntity{
+				Version: c.version,
+				UUID:    reqId,
+				Command: command,
+				Payload: data,
+			},
+		}
+	)
+	defer subCancel()
+
+	c.pubSubResp.Subscribe(subCtx, reqId, ch)
+
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("canceled")
+	case <-subCtx.Done():
+		return nil, errors.New("timeout")
+	case c.queueBuffer <- req:
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("canceled")
+	case <-subCtx.Done():
+		return nil, errors.New("timeout")
+	case dataResp := <-ch:
+		return dataResp, nil
+	}
+}
+
 func (c *Client) loop(ctx context.Context, conn *websocket.Conn) {
 	var (
 		err  error
@@ -119,8 +162,10 @@ func (c *Client) loop(ctx context.Context, conn *websocket.Conn) {
 			case <-subCtx.Done():
 				return
 			case <-ticker.C:
+				ticker.Stop()
 			}
-			c.AddRequest("ping", nil) //主动发心跳包
+			c.Send(ctx, "ping", nil) //主动发心跳包
+			ticker.Reset(c.timeout)
 		}
 	}()
 
@@ -160,22 +205,17 @@ func (c *Client) loop(ctx context.Context, conn *websocket.Conn) {
 			return
 		}
 		if resp.Type == "push" {
-			c.pubSub.Publish(resp.Command, resp.Body)
+			c.pubSubPush.Publish(resp.Command, resp.Body)
 			continue
 		}
 
 		if val, ok := c.querying.LoadAndDelete(resp.UUID); ok {
 			ent := val.(clientRequest)
-			if ent.cancel != nil {
-				ent.cancel() //取消超时重试的任务
+			if ent.cancelWaiting != nil {
+				ent.cancelWaiting() //快速释放等待超时的线程
 			}
-			wg.Add(1)
-			go func() { //处理回调函数
-				defer wg.Done()
-				for _, callback := range ent.callbacks {
-					callback(true, resp.Body)
-				}
-			}()
+			//发布响应数据通知
+			c.pubSubResp.Publish(resp.UUID, resp.Body)
 		}
 	}
 }
@@ -198,13 +238,16 @@ func (c *Client) runSending(ctx context.Context, conn *websocket.Conn) {
 
 		//没有重试机会的立即失败回调
 		if req.tryLeft <= 0 {
-			wg.Add(1)
-			go func() { //处理回调函数(失败)
-				defer wg.Done()
-				for _, callback := range req.callbacks {
-					callback(false, nil)
-				}
-			}()
+			data, _ := json.Marshal(struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+				Data    any    `json:"data"`
+			}{
+				Code:    1,
+				Message: "retries exhausted",
+				Data:    nil,
+			})
+			c.pubSubResp.Publish(req.body.UUID, data)
 			continue
 		}
 
@@ -215,7 +258,7 @@ func (c *Client) runSending(ctx context.Context, conn *websocket.Conn) {
 
 		//保存到发送中队列
 		subCtx, subCancel := context.WithCancel(context.Background())
-		req.cancel = subCancel
+		req.cancelWaiting = subCancel
 		c.querying.Store(req.body.UUID, req)
 		//设定定时器，超时继续重试
 		wg.Add(1)
@@ -226,7 +269,7 @@ func (c *Client) runSending(ctx context.Context, conn *websocket.Conn) {
 			select {
 			case <-ctx.Done(): //外部退出执行这里
 				return
-			case <-subCtx.Done(): //成功收到发送响应，会执行这里
+			case <-subCtx.Done(): //成功收到发送响应，会执行这里，为了快速释放等待资源
 				return
 			case <-ticker.C:
 			}
@@ -242,34 +285,6 @@ func (c *Client) runSending(ctx context.Context, conn *websocket.Conn) {
 	}
 }
 
-func (c *Client) AddRequest(command string, object any, callbacks ...func(bool, []byte)) error {
-	return c.AddRequestWithTryTimes(1, command, object, callbacks...)
-}
-
-func (c *Client) AddRequestWithTryTimes(times int, command string, object any, callbacks ...func(bool, []byte)) error {
-	var (
-		reqId  = uuid.NewV4().String()
-		ticker = time.NewTimer(time.Second * 3)
-	)
-	defer ticker.Stop()
-
-	select {
-	case <-ticker.C:
-		return errors.New("timeout")
-	case c.queueBuffer <- clientRequest{
-		body: clientEntity{
-			Version: c.version,
-			UUID:    reqId,
-			Command: command,
-			Payload: object,
-		},
-		callbacks: callbacks,
-		tryLeft:   times,
-	}:
-		return nil
-	}
-}
-
 func (c *Client) Subscribe(ctx context.Context, topic string, ch chan<- []byte) {
-	c.pubSub.Subscribe(ctx, topic, ch)
+	c.pubSubPush.Subscribe(ctx, topic, ch)
 }

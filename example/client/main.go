@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/gorilla/websocket"
+	server "github.com/jqqjj/ws-server"
 	"log"
 	"math/rand"
 	"time"
@@ -30,33 +31,22 @@ func main() {
 	}
 	defer conn.Close()
 
-	req := struct {
-		UUID    string `json:"uuid"`
-		Command string `json:"command"`
-		Payload any    `json:"payload"`
-	}{
-		UUID:    "1234",
-		Command: "api/pd/test",
-		Payload: struct {
+	client := server.NewClient(uri, "0.1", time.Second*15)
+	go client.Run(context.Background())
+
+	for {
+		data, err := client.Send(context.Background(), "api/pd/test", struct {
 			Username string `json:"username"`
 		}{
 			Username: "admin",
-		},
-	}
+		})
 
-	for {
-		req.UUID = StringRandom(6)
-		conn.WriteJSON(req)
+		if err != nil {
+			log.Println("错误", err)
+			continue
+		}
 
-		var data []byte
-		if _, data, err = conn.ReadMessage(); err != nil {
-			log.Fatalln(err)
-		}
-		log.Printf("收到：%s\n", data)
-		if _, data, err = conn.ReadMessage(); err != nil {
-			log.Fatalln(err)
-		}
-		log.Printf("收到：%s\n", data)
+		log.Println("收到", string(data))
 
 		time.Sleep(time.Second)
 	}
