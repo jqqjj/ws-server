@@ -34,6 +34,17 @@ func main() {
 	client := server.NewClient(uri, "0.1", time.Second*15)
 	go client.Run(context.Background())
 
+	ch := make(chan []byte)
+
+	ctx, _ := context.WithTimeout(context.Background(), time.Second*10)
+	client.Subscribe(ctx, "haha", ch)
+
+	go func() {
+		for v := range ch {
+			log.Println("收到推送", string(v))
+		}
+	}()
+
 	for {
 		data, err := client.Send(context.Background(), "api/pd/test", struct {
 			Username string `json:"username"`
