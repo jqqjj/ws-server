@@ -85,7 +85,7 @@ func wsServer() *server.Server {
 		fmt.Printf("payload:%s, command:%s, ip:%s, uuid:%s\n", r.Payload, r.Command, r.ClientIP, r.UUID)
 		w.Success("test")
 		p := server.NewPush(r.MustGet("conn").(*server.Conn))
-		p.Write("haha", struct {
+		p.SendJSON("haha", struct {
 			Token string `json:"token"`
 		}{Token: "token123456"})
 	}, func(next server.HandleFunc, r *server.Request, w *server.Response) {

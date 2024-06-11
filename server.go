@@ -91,7 +91,7 @@ func (s *Server) Process(ctx context.Context, c *websocket.Conn) {
 	}
 }
 
-func (s *Server) send(conn *Conn, req *Request, resp *Response) error {
+func (s *Server) send(conn *Conn, req *Request, resp *Response) {
 	if !resp.filled {
 		resp.SetResponseBody(ResponseBody{
 			Code:    1,
@@ -100,7 +100,7 @@ func (s *Server) send(conn *Conn, req *Request, resp *Response) error {
 		})
 	}
 
-	return conn.SendJSON(struct {
+	conn.SendJSON(struct {
 		UUID    string `json:"uuid"`
 		Type    string `json:"type"`
 		Command string `json:"command"`

@@ -14,7 +14,7 @@ func (p *Push) GetConn() *Conn {
 	return p.conn
 }
 
-func (p *Push) Write(command string, object any) error {
+func (p *Push) SendJSON(command string, object any) {
 	resp := struct {
 		Type    string `json:"type"`
 		Command string `json:"command"`
@@ -25,5 +25,5 @@ func (p *Push) Write(command string, object any) error {
 		Body:    object,
 	}
 
-	return p.conn.SendJSON(resp)
+	p.conn.SendJSON(resp)
 }
