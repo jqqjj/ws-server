@@ -1,18 +1,16 @@
 package server
 
-import "github.com/gorilla/websocket"
-
 type Push struct {
-	conn *websocket.Conn
+	conn *Conn
 }
 
-func NewPush(conn *websocket.Conn) *Push {
+func NewPush(conn *Conn) *Push {
 	return &Push{
 		conn: conn,
 	}
 }
 
-func (p *Push) GetConn() *websocket.Conn {
+func (p *Push) GetConn() *Conn {
 	return p.conn
 }
 
@@ -27,5 +25,5 @@ func (p *Push) Write(command string, object any) error {
 		Body:    object,
 	}
 
-	return p.conn.WriteJSON(resp)
+	return p.conn.SendJSON(resp)
 }

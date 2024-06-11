@@ -18,40 +18,42 @@ func NewServer() *Server {
 	}
 }
 
-func (s *Server) Process(ctx context.Context, conn *websocket.Conn) {
+func (s *Server) Process(ctx context.Context, c *websocket.Conn) {
 	var (
 		err  error
 		data []byte
 
 		meta *sync.Map
 
-		done = make(chan struct{})
+		subCtx, subCancel = context.WithCancel(ctx)
+
+		ip   = c.RemoteAddr().(*net.TCPAddr).IP.String()
+		conn = NewConn(subCtx, c)
 	)
-	defer close(done)
+	defer subCancel()
 
 	go func() {
-		select {
-		case <-ctx.Done():
-		case <-done:
-		}
+		<-subCtx.Done()
 		conn.Close()
 	}()
 
-	addr := conn.RemoteAddr().(*net.TCPAddr)
-	ip := addr.IP.String()
-
 	for {
-		var req struct {
-			Version string          `json:"version"`
-			UUID    string          `json:"uuid"`
-			Command string          `json:"command"`
-			Payload json.RawMessage `json:"payload"`
-		}
+		var (
+			req struct {
+				Version string          `json:"version"`
+				UUID    string          `json:"uuid"`
+				Command string          `json:"command"`
+				Payload json.RawMessage `json:"payload"`
+			}
+			respEntity = NewResponse(conn)
+		)
+
 		if _, data, err = conn.ReadMessage(); err != nil {
 			return
 		}
 		if err = json.Unmarshal(data, &req); err != nil {
-			NewResponse(conn).FailWithCodeAndMessage(404, "error to parse request")
+			respEntity.FailWithCodeAndMessage(404, "error parsing request")
+			s.send(conn, &Request{}, respEntity)
 			continue
 		}
 
@@ -69,7 +71,8 @@ func (s *Server) Process(ctx context.Context, conn *websocket.Conn) {
 
 		handleEntity, ok := s.handles[reqEntity.Command]
 		if !ok {
-			NewResponse(conn).FailWithCodeAndMessage(404, "command not found")
+			respEntity.FailWithCodeAndMessage(404, "command not found")
+			s.send(conn, reqEntity, respEntity)
 			continue
 		}
 
@@ -83,34 +86,29 @@ func (s *Server) Process(ctx context.Context, conn *websocket.Conn) {
 			}(next)
 		}
 
-		respEntity := NewResponse(conn)
-
-		func() {
-			defer func() {
-				if !respEntity.filled {
-					respEntity.filled = true
-					respEntity.body = ResponseBody{
-						Code:    1,
-						Message: "Server error",
-						Data:    nil,
-					}
-				}
-
-				conn.WriteJSON(struct {
-					UUID    string `json:"uuid"`
-					Type    string `json:"type"`
-					Command string `json:"command"`
-					Body    any    `json:"body"`
-				}{
-					UUID:    reqEntity.UUID,
-					Type:    "response",
-					Command: reqEntity.Command,
-					Body:    respEntity.body,
-				})
-
-				meta = reqEntity.meta
-			}()
-			next(reqEntity, respEntity)
-		}()
+		next(reqEntity, respEntity)
+		s.send(conn, reqEntity, respEntity)
 	}
+}
+
+func (s *Server) send(conn *Conn, req *Request, resp *Response) error {
+	if !resp.filled {
+		resp.SetResponseBody(ResponseBody{
+			Code:    1,
+			Message: "Server error",
+			Data:    nil,
+		})
+	}
+
+	return conn.SendJSON(struct {
+		UUID    string `json:"uuid"`
+		Type    string `json:"type"`
+		Command string `json:"command"`
+		Body    any    `json:"body"`
+	}{
+		UUID:    req.UUID,
+		Type:    "response",
+		Command: req.Command,
+		Body:    resp.GetResponseBody(),
+	})
 }

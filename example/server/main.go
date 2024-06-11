@@ -84,7 +84,7 @@ func wsServer() *server.Server {
 		//panic("panic  aaa")
 		fmt.Printf("payload:%s, command:%s, ip:%s, uuid:%s\n", r.Payload, r.Command, r.ClientIP, r.UUID)
 		w.Success("test")
-		p := server.NewPush(r.MustGet("conn").(*websocket.Conn))
+		p := server.NewPush(r.MustGet("conn").(*server.Conn))
 		p.Write("haha", struct {
 			Token string `json:"token"`
 		}{Token: "token123456"})
