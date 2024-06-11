@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/gorilla/websocket"
 	server "github.com/jqqjj/ws-server"
 	"log"
 	"math/rand"
@@ -13,30 +12,15 @@ import (
 
 func main() {
 	var (
-		err error
-		uri string
-
-		conn *websocket.Conn
-
-		dial = websocket.Dialer{
-			HandshakeTimeout:  time.Second * 15,
-			EnableCompression: false,
-		}
+		ch          = make(chan []byte)
+		uri         = fmt.Sprintf("ws://%s/", "localhost:8089")
+		ctx, cancel = context.WithTimeout(context.Background(), time.Second*10)
 	)
-
-	uri = fmt.Sprintf("ws://%s/", "localhost:8089")
-
-	if conn, _, err = dial.DialContext(context.Background(), uri, nil); err != nil {
-		log.Fatalln(err)
-	}
-	defer conn.Close()
+	defer cancel()
 
 	client := server.NewClient(uri, "0.1", time.Second*15)
-	go client.Run(context.Background())
+	go client.Run(ctx)
 
-	ch := make(chan []byte)
-
-	ctx, _ := context.WithTimeout(context.Background(), time.Second*10)
 	client.Subscribe(ctx, "haha", ch)
 
 	go func() {
@@ -46,7 +30,7 @@ func main() {
 	}()
 
 	for {
-		data, err := client.Send(context.Background(), "api/pd/test", struct {
+		data, err := client.Send(ctx, "api/pd/test", struct {
 			Username string `json:"username"`
 		}{
 			Username: "admin",
@@ -54,6 +38,7 @@ func main() {
 
 		if err != nil {
 			log.Println("错误", err)
+			time.Sleep(time.Second)
 			continue
 		}
 
