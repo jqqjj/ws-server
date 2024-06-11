@@ -25,23 +25,26 @@ type clientRequest struct {
 }
 
 type Client struct {
-	addr     string
-	version  string
-	bufferCh chan clientRequest
-	querying sync.Map
-	pubSub   *PubSub[string, []byte]
+	addr    string
+	version string
+	timeout time.Duration
+
+	queueBuffer chan clientRequest
+	querying    sync.Map
+	pubSub      *PubSub[string, []byte]
 
 	onDialError func()
 	onConnected func(conn *websocket.Conn)
 	onClosed    func()
 }
 
-func NewClient(addr, version string) *Client {
+func NewClient(addr, version string, timeoutDuration time.Duration) *Client {
 	return &Client{
-		addr:     addr,
-		version:  version,
-		bufferCh: make(chan clientRequest, 100),
-		pubSub:   NewPubSub[string, []byte](),
+		addr:        addr,
+		version:     version,
+		timeout:     timeoutDuration,
+		queueBuffer: make(chan clientRequest, 100),
+		pubSub:      NewPubSub[string, []byte](),
 	}
 }
 
@@ -52,7 +55,7 @@ func (c *Client) Run(ctx context.Context) {
 		conn  *websocket.Conn
 
 		dial = websocket.Dialer{
-			HandshakeTimeout:  time.Second * 30,
+			HandshakeTimeout:  c.timeout,
 			EnableCompression: false,
 		}
 		ticker = time.NewTicker(time.Millisecond)
@@ -108,7 +111,7 @@ func (c *Client) loop(ctx context.Context, conn *websocket.Conn) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		ticker := time.NewTicker(time.Second * 30)
+		ticker := time.NewTicker(c.timeout)
 		defer ticker.Stop()
 		defer conn.Close() //处理外部退出时关闭conn
 		for {
@@ -139,7 +142,7 @@ func (c *Client) loop(ctx context.Context, conn *websocket.Conn) {
 		select {
 		case <-ctx.Done():
 			c.querying.Store(v.body.UUID, v)
-		case c.bufferCh <- v:
+		case c.queueBuffer <- v:
 		}
 	}
 
@@ -190,7 +193,7 @@ func (c *Client) runSending(ctx context.Context, conn *websocket.Conn) {
 		select {
 		case <-ctx.Done():
 			return
-		case req = <-c.bufferCh:
+		case req = <-c.queueBuffer:
 		}
 
 		//没有重试机会的立即失败回调
@@ -218,7 +221,7 @@ func (c *Client) runSending(ctx context.Context, conn *websocket.Conn) {
 		wg.Add(1)
 		go func(uuid string) {
 			defer wg.Done()
-			ticker := time.NewTimer(time.Second * 30)
+			ticker := time.NewTimer(c.timeout)
 			defer ticker.Stop()
 			select {
 			case <-ctx.Done(): //外部退出执行这里
@@ -232,7 +235,7 @@ func (c *Client) runSending(ctx context.Context, conn *websocket.Conn) {
 				select {
 				case <-ctx.Done(): //外部退出时，重回querying列表
 					c.querying.Store(uuid, val.(clientRequest))
-				case c.bufferCh <- val.(clientRequest):
+				case c.queueBuffer <- val.(clientRequest):
 				}
 			}
 		}(req.body.UUID)
@@ -253,7 +256,7 @@ func (c *Client) AddRequestWithTryTimes(times int, command string, object any, c
 	select {
 	case <-ticker.C:
 		return errors.New("timeout")
-	case c.bufferCh <- clientRequest{
+	case c.queueBuffer <- clientRequest{
 		body: clientEntity{
 			Version: c.version,
 			UUID:    reqId,
