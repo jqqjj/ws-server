@@ -69,6 +69,13 @@ func (s *Server) Process(ctx context.Context, c *websocket.Conn) {
 			meta:     meta,
 		}
 
+		//处理心跳包
+		if req.Command == "ping" {
+			respEntity.Success(nil)
+			s.send(conn, reqEntity, respEntity)
+			continue
+		}
+
 		handleEntity, ok := s.handles[reqEntity.Command]
 		if !ok {
 			respEntity.FailWithCodeAndMessage(404, "command not found")

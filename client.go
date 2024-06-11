@@ -10,15 +10,15 @@ import (
 	"time"
 )
 
-type clientWSEnt struct {
+type clientEntity struct {
 	Version string `json:"version"`
 	UUID    string `json:"uuid"`
 	Command string `json:"command"`
 	Payload any    `json:"payload"`
 }
 
-type clientWSRequest struct {
-	body      clientWSEnt
+type clientRequest struct {
+	body      clientEntity
 	callbacks []func(bool, []byte)
 	tryLeft   int
 	cancel    context.CancelFunc
@@ -27,7 +27,7 @@ type clientWSRequest struct {
 type Client struct {
 	addr     string
 	version  string
-	writeCh  chan clientWSRequest
+	bufferCh chan clientRequest
 	querying sync.Map
 	pubSub   *PubSub[string, []byte]
 
@@ -38,10 +38,10 @@ type Client struct {
 
 func NewClient(addr, version string) *Client {
 	return &Client{
-		addr:    addr,
-		version: version,
-		writeCh: make(chan clientWSRequest, 100),
-		pubSub:  NewPubSub[string, []byte](),
+		addr:     addr,
+		version:  version,
+		bufferCh: make(chan clientRequest, 100),
+		pubSub:   NewPubSub[string, []byte](),
 	}
 }
 
@@ -129,9 +129,9 @@ func (c *Client) loop(ctx context.Context, conn *websocket.Conn) {
 	}()
 
 	//把正在发送中的队列重发
-	histories := make([]clientWSRequest, 0)
+	histories := make([]clientRequest, 0)
 	c.querying.Range(func(key, value any) bool {
-		histories = append(histories, value.(clientWSRequest))
+		histories = append(histories, value.(clientRequest))
 		c.querying.Delete(key)
 		return true
 	})
@@ -139,7 +139,7 @@ func (c *Client) loop(ctx context.Context, conn *websocket.Conn) {
 		select {
 		case <-ctx.Done():
 			c.querying.Store(v.body.UUID, v)
-		case c.writeCh <- v:
+		case c.bufferCh <- v:
 		}
 	}
 
@@ -162,7 +162,7 @@ func (c *Client) loop(ctx context.Context, conn *websocket.Conn) {
 		}
 
 		if val, ok := c.querying.LoadAndDelete(resp.UUID); ok {
-			ent := val.(clientWSRequest)
+			ent := val.(clientRequest)
 			if ent.cancel != nil {
 				ent.cancel() //取消超时重试的任务
 			}
@@ -181,7 +181,7 @@ func (c *Client) runSending(ctx context.Context, conn *websocket.Conn) {
 	var (
 		err error
 		wg  sync.WaitGroup
-		req clientWSRequest
+		req clientRequest
 	)
 	defer wg.Wait()
 
@@ -190,7 +190,7 @@ func (c *Client) runSending(ctx context.Context, conn *websocket.Conn) {
 		select {
 		case <-ctx.Done():
 			return
-		case req = <-c.writeCh:
+		case req = <-c.bufferCh:
 		}
 
 		//没有重试机会的立即失败回调
@@ -231,8 +231,8 @@ func (c *Client) runSending(ctx context.Context, conn *websocket.Conn) {
 			if val, ok := c.querying.LoadAndDelete(uuid); ok {
 				select {
 				case <-ctx.Done(): //外部退出时，重回querying列表
-					c.querying.Store(uuid, val.(clientWSRequest))
-				case c.writeCh <- val.(clientWSRequest):
+					c.querying.Store(uuid, val.(clientRequest))
+				case c.bufferCh <- val.(clientRequest):
 				}
 			}
 		}(req.body.UUID)
@@ -253,8 +253,9 @@ func (c *Client) AddRequestWithTryTimes(times int, command string, object any, c
 	select {
 	case <-ticker.C:
 		return errors.New("timeout")
-	case c.writeCh <- clientWSRequest{
-		body: clientWSEnt{
+	case c.bufferCh <- clientRequest{
+		body: clientEntity{
+			Version: c.version,
 			UUID:    reqId,
 			Command: command,
 			Payload: object,
