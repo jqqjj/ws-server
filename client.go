@@ -125,7 +125,12 @@ func (c *Client) Send(ctx context.Context, command string, data any) ([]byte, er
 	case <-ctx.Done():
 		return nil, errors.New("canceled")
 	case <-subCtx.Done():
-		return nil, errors.New("timeout")
+		select {
+		case <-ctx.Done():
+			return nil, errors.New("canceled")
+		default:
+			return nil, errors.New("timeout")
+		}
 	case c.queueBuffer <- req:
 	}
 
@@ -133,7 +138,12 @@ func (c *Client) Send(ctx context.Context, command string, data any) ([]byte, er
 	case <-ctx.Done():
 		return nil, errors.New("canceled")
 	case <-subCtx.Done():
-		return nil, errors.New("timeout")
+		select {
+		case <-ctx.Done():
+			return nil, errors.New("canceled")
+		default:
+			return nil, errors.New("timeout")
+		}
 	case dataResp := <-ch:
 		return dataResp, nil
 	}
@@ -164,7 +174,7 @@ func (c *Client) loop(ctx context.Context, conn *websocket.Conn) {
 			case <-ticker.C:
 				ticker.Stop()
 			}
-			c.Send(ctx, "ping", nil) //主动发心跳包
+			c.Send(subCtx, "ping", nil) //主动发心跳包
 			ticker.Reset(c.timeout)
 		}
 	}()
@@ -185,7 +195,7 @@ func (c *Client) loop(ctx context.Context, conn *websocket.Conn) {
 	})
 	for _, v := range histories {
 		select {
-		case <-ctx.Done():
+		case <-subCtx.Done():
 			c.querying.Store(v.body.UUID, v)
 		case c.queueBuffer <- v:
 		}
